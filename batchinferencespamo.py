@@ -439,32 +439,54 @@ class BatchInferencePipeline:
     def process_batch(
         self,
         video_paths: List[str],
-        output_dir: Path
+        output_dir: Path,
+        log_file=None
     ) -> List[Dict]:
         """Process multiple videos with progress tracking."""
+        from datetime import datetime
+
         output_dir.mkdir(parents=True, exist_ok=True)
         results = []
 
         print(f"\nProcessing {len(video_paths)} videos...")
         print("=" * 60)
 
-        for video_path in tqdm(video_paths, desc="Processing videos"):
+        for idx, video_path in enumerate(tqdm(video_paths, desc="Processing videos")):
+            video_id = Path(video_path).stem
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Log start
+            print(f"\n[{idx+1}/{len(video_paths)}] Processing: {video_id}")
+            if log_file:
+                log_file.write(f"{timestamp},{video_id},started,\n")
+                log_file.flush()
+
             try:
                 result = self.process_video(video_path, output_dir)
                 results.append(result)
 
                 if 'error' not in result:
-                    tqdm.write(f"  {result['video_id']}: {result['translation'][:50]}...")
+                    msg = f"  {result['video_id']}: {result['translation'][:50]}..."
+                    tqdm.write(msg)
+                    if log_file:
+                        log_file.write(f"{timestamp},{video_id},success,{result['translation'][:100]}\n")
                 else:
                     tqdm.write(f"  {result['video_id']}: ERROR - {result['error']}")
+                    if log_file:
+                        log_file.write(f"{timestamp},{video_id},error,{result['error']}\n")
 
             except Exception as e:
                 results.append({
-                    'video_id': Path(video_path).stem,
+                    'video_id': video_id,
                     'video_path': video_path,
                     'error': str(e)
                 })
-                tqdm.write(f"  {Path(video_path).stem}: ERROR - {e}")
+                tqdm.write(f"  {video_id}: ERROR - {e}")
+                if log_file:
+                    log_file.write(f"{timestamp},{video_id},error,{str(e)}\n")
+
+            if log_file:
+                log_file.flush()
 
         return results
 
@@ -561,6 +583,10 @@ def parse_args():
     parser.add_argument('--no_fp16', action='store_true', help='Disable FP16 inference')
     parser.add_argument('--output_format', type=str, default='all',
                        choices=['all', 'json', 'csv', 'txt'])
+    parser.add_argument('--sample_percent', type=float, default=100.0,
+                       help='Percentage of videos to process (default: 100)')
+    parser.add_argument('--log_file', type=str, default=None,
+                       help='Log file to record progress')
 
     return parser.parse_args()
 
@@ -587,6 +613,20 @@ def main():
         print("No videos found!")
         return
 
+    # Sample videos if requested
+    if args.sample_percent < 100.0:
+        import random
+        random.seed(42)  # Reproducible sampling
+        num_samples = max(1, int(len(video_paths) * args.sample_percent / 100))
+        video_paths = random.sample(video_paths, num_samples)
+        print(f"Sampling {args.sample_percent}%: {num_samples} video(s)")
+
+    # Set up logging
+    log_file = None
+    if args.log_file:
+        log_file = open(args.log_file, 'w')
+        log_file.write("timestamp,video_id,status,message\n")
+
     # Create config
     config = InferenceConfig(
         checkpoint=args.checkpoint,
@@ -606,7 +646,7 @@ def main():
 
     # Process videos
     output_dir = Path(args.output_dir)
-    results = pipeline.process_batch(video_paths, output_dir)
+    results = pipeline.process_batch(video_paths, output_dir, log_file)
 
     # Save results
     print("\n" + "=" * 60)
@@ -618,6 +658,10 @@ def main():
 
     if torch.cuda.is_available():
         CUDAMemoryManager.print_memory_usage(args.device, "Final ")
+
+    # Close log file
+    if log_file:
+        log_file.close()
 
 
 if __name__ == '__main__':
