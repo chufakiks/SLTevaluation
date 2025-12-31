@@ -550,7 +550,7 @@ def parse_args():
     # Optional
     parser.add_argument('--config', type=str, default='configs/finetune.yaml')
     parser.add_argument('--output_dir', type=str, default='./inference_output')
-    parser.add_argument('--target_lang', type=str, default='German',
+    parser.add_argument('--target_lang', type=str, default='English',
                        choices=['German', 'English', 'French', 'Spanish', 'Chinese'])
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--spatial_batch_size', type=int, default=64)
