@@ -388,44 +388,69 @@ class BatchInferencePipeline:
         output_dir: Optional[Path] = None
     ) -> Dict:
         """Process a single video and return results."""
+        import time
         video_id = Path(video_path).stem
 
-        # Extract frames
+        # Sync GPU before starting total timer
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        total_start = time.time()
+
+        # Extract frames (CPU operation, no sync needed)
+        frame_start = time.time()
         frames = self.frame_extractor.extract_frames(
             video_path,
             self.config.max_frames
         )
+        frame_time = time.time() - frame_start
 
         if len(frames) == 0:
             return {'video_id': video_id, 'error': 'No frames extracted'}
 
-        # Extract features
+        # Extract spatial features (GPU operation)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        spatial_start = time.time()
         spatial_features = self.spatial_extractor.extract(
             frames,
             batch_size=self.config.spatial_batch_size
         )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        spatial_time = time.time() - spatial_start
 
+        # Extract motion features (GPU operation)
+        motion_start = time.time()
         motion_features = self.motion_extractor.extract(
             frames,
             batch_size=self.config.motion_batch_size
         )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        motion_time = time.time() - motion_start
 
         # Save features if requested
         if self.config.save_features and output_dir:
             np.save(output_dir / f"{video_id}_s2wrapping.npy", spatial_features)
             np.save(output_dir / f"{video_id}_overlap-8-pretrained.npy", motion_features)
 
-        # Run inference
+        # Run inference (GPU operation)
+        inference_start = time.time()
         translation = self.model.infer(
             spatial_features=spatial_features,
             motion_features=motion_features,
             target_lang=self.config.target_lang,
             video_id=video_id
         )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        inference_time = time.time() - inference_start
 
         # Clear some memory
         del frames
         CUDAMemoryManager.clear_cache()
+
+        total_time = time.time() - total_start
 
         return {
             'video_id': video_id,
@@ -433,7 +458,12 @@ class BatchInferencePipeline:
             'translation': translation,
             'num_frames': len(spatial_features),
             'spatial_shape': spatial_features.shape,
-            'motion_shape': motion_features.shape
+            'motion_shape': motion_features.shape,
+            'frame_extraction_time': round(frame_time, 3),
+            'spatial_feature_time': round(spatial_time, 3),
+            'motion_feature_time': round(motion_time, 3),
+            'inference_time': round(inference_time, 3),
+            'total_time': round(total_time, 3)
         }
 
     def process_batch(
@@ -453,9 +483,14 @@ class BatchInferencePipeline:
         csv_path = output_dir / 'results.csv'
         csv_file = None
         csv_writer = None
+        csv_fieldnames = [
+            'video_id', 'translation', 'num_frames', 'error',
+            'frame_extraction_time', 'spatial_feature_time', 'motion_feature_time',
+            'inference_time', 'total_time'
+        ]
         if incremental_csv:
             csv_file = open(csv_path, 'w', newline='')
-            csv_writer = csv.DictWriter(csv_file, fieldnames=['video_id', 'translation', 'num_frames', 'error'])
+            csv_writer = csv.DictWriter(csv_file, fieldnames=csv_fieldnames)
             csv_writer.writeheader()
             csv_file.flush()
 
@@ -504,7 +539,12 @@ class BatchInferencePipeline:
                         'video_id': result.get('video_id', ''),
                         'translation': result.get('translation', ''),
                         'num_frames': result.get('num_frames', ''),
-                        'error': result.get('error', '')
+                        'error': result.get('error', ''),
+                        'frame_extraction_time': result.get('frame_extraction_time', ''),
+                        'spatial_feature_time': result.get('spatial_feature_time', ''),
+                        'motion_feature_time': result.get('motion_feature_time', ''),
+                        'inference_time': result.get('inference_time', ''),
+                        'total_time': result.get('total_time', '')
                     })
                     csv_file.flush()
 
