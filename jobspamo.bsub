@@ -42,4 +42,5 @@ python3 batchinferencespamo.py \
     --video_csv cropped_videos_mapping.csv \
     --checkpoint spamo.ckpt \
     --target_lang English \
-    --output_dir spamores
+    --output_dir spamores \
+    --cache_dir /work3/s235253/.cache/huggingface

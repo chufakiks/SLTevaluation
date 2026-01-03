@@ -254,13 +254,19 @@ class SpaMoBatchInference:
         checkpoint_path: str,
         config_path: str,
         device: str = 'cuda:0',
-        use_fp16: bool = True
+        use_fp16: bool = True,
+        cache_dir: Optional[str] = None
     ):
         self.device = device
         self.use_fp16 = use_fp16 and torch.cuda.is_available()
 
         print(f"\nLoading SpaMo model...")
         self.config = OmegaConf.load(config_path)
+
+        # Inject cache_dir into model params for HuggingFace downloads
+        if cache_dir:
+            self.config.model.params.cache_dir = cache_dir
+
         self.model = instantiate_from_config(self.config.model)
 
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -376,7 +382,8 @@ class BatchInferencePipeline:
             checkpoint_path=config.checkpoint,
             config_path=config.config,
             device=self.device,
-            use_fp16=config.use_fp16
+            use_fp16=config.use_fp16,
+            cache_dir=config.cache_dir
         )
 
         if torch.cuda.is_available():
