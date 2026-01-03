@@ -295,14 +295,14 @@ class SpaMoBatchInference:
         self,
         spatial_features: np.ndarray,
         motion_features: np.ndarray,
-        target_lang: str = 'German',
+        target_lang: str = 'English',
         video_id: str = 'video'
     ) -> str:
         """Run inference on extracted features."""
         dtype = torch.float16 if self.use_fp16 else torch.float32
 
-        spatial_feat = torch.tensor(spatial_features, dtype=dtype)
-        motion_feat = torch.tensor(motion_features, dtype=dtype)
+        spatial_feat = torch.tensor(spatial_features, dtype=dtype, device=self.device)
+        motion_feat = torch.tensor(motion_features, dtype=dtype, device=self.device)
 
         sample = {
             'pixel_values': [spatial_feat],
