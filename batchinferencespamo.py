@@ -440,7 +440,8 @@ class BatchInferencePipeline:
         self,
         video_paths: List[str],
         output_dir: Path,
-        log_file=None
+        log_file=None,
+        incremental_csv: bool = True
     ) -> List[Dict]:
         """Process multiple videos with progress tracking."""
         from datetime import datetime
@@ -448,45 +449,70 @@ class BatchInferencePipeline:
         output_dir.mkdir(parents=True, exist_ok=True)
         results = []
 
+        # Set up incremental CSV saving
+        csv_path = output_dir / 'results.csv'
+        csv_file = None
+        csv_writer = None
+        if incremental_csv:
+            csv_file = open(csv_path, 'w', newline='')
+            csv_writer = csv.DictWriter(csv_file, fieldnames=['video_id', 'translation', 'num_frames', 'error'])
+            csv_writer.writeheader()
+            csv_file.flush()
+
         print(f"\nProcessing {len(video_paths)} videos...")
         print("=" * 60)
 
-        for idx, video_path in enumerate(tqdm(video_paths, desc="Processing videos")):
-            video_id = Path(video_path).stem
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            for idx, video_path in enumerate(tqdm(video_paths, desc="Processing videos")):
+                video_id = Path(video_path).stem
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Log start
-            print(f"\n[{idx+1}/{len(video_paths)}] Processing: {video_id}")
-            if log_file:
-                log_file.write(f"{timestamp},{video_id},started,\n")
-                log_file.flush()
-
-            try:
-                result = self.process_video(video_path, output_dir)
-                results.append(result)
-
-                if 'error' not in result:
-                    msg = f"  {result['video_id']}: {result['translation'][:50]}..."
-                    tqdm.write(msg)
-                    if log_file:
-                        log_file.write(f"{timestamp},{video_id},success,{result['translation'][:100]}\n")
-                else:
-                    tqdm.write(f"  {result['video_id']}: ERROR - {result['error']}")
-                    if log_file:
-                        log_file.write(f"{timestamp},{video_id},error,{result['error']}\n")
-
-            except Exception as e:
-                results.append({
-                    'video_id': video_id,
-                    'video_path': video_path,
-                    'error': str(e)
-                })
-                tqdm.write(f"  {video_id}: ERROR - {e}")
+                # Log start
+                print(f"\n[{idx+1}/{len(video_paths)}] Processing: {video_id}")
                 if log_file:
-                    log_file.write(f"{timestamp},{video_id},error,{str(e)}\n")
+                    log_file.write(f"{timestamp},{video_id},started,\n")
+                    log_file.flush()
 
-            if log_file:
-                log_file.flush()
+                try:
+                    result = self.process_video(video_path, output_dir)
+                    results.append(result)
+
+                    if 'error' not in result:
+                        msg = f"  {result['video_id']}: {result['translation'][:50]}..."
+                        tqdm.write(msg)
+                        if log_file:
+                            log_file.write(f"{timestamp},{video_id},success,{result['translation'][:100]}\n")
+                    else:
+                        tqdm.write(f"  {result['video_id']}: ERROR - {result['error']}")
+                        if log_file:
+                            log_file.write(f"{timestamp},{video_id},error,{result['error']}\n")
+
+                except Exception as e:
+                    result = {
+                        'video_id': video_id,
+                        'video_path': video_path,
+                        'error': str(e)
+                    }
+                    results.append(result)
+                    tqdm.write(f"  {video_id}: ERROR - {e}")
+                    if log_file:
+                        log_file.write(f"{timestamp},{video_id},error,{str(e)}\n")
+
+                # Write to incremental CSV immediately
+                if csv_writer:
+                    csv_writer.writerow({
+                        'video_id': result.get('video_id', ''),
+                        'translation': result.get('translation', ''),
+                        'num_frames': result.get('num_frames', ''),
+                        'error': result.get('error', '')
+                    })
+                    csv_file.flush()
+
+                if log_file:
+                    log_file.flush()
+        finally:
+            if csv_file:
+                csv_file.close()
 
         return results
 
@@ -560,6 +586,11 @@ def parse_args():
         type=str,
         help='Single video file path'
     )
+    input_group.add_argument(
+        '--video_csv',
+        type=str,
+        help='CSV file with video paths (expects column: cropped_video_path)'
+    )
 
     # Required
     parser.add_argument(
@@ -604,6 +635,10 @@ def main():
     elif args.video_list:
         with open(args.video_list) as f:
             video_paths = [line.strip() for line in f if line.strip()]
+    elif args.video_csv:
+        import pandas as pd
+        df = pd.read_csv(args.video_csv)
+        video_paths = df['cropped_video_path'].tolist()
     else:
         video_paths = find_videos(args.video_dir)
 
