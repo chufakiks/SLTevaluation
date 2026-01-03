@@ -29,8 +29,16 @@
 #BSUB -o Output_%J.out
 #BSUB -e Output_%J.err
 
+export XDG_CACHE_HOME="/work3/s235253/.cache"
+export HF_HOME="/work3/s235253/.cache/huggingface"
+export TRANSFORMERS_CACHE="/work3/s235253/.cache/huggingface"
+export HUGGINGFACE_HUB_CACHE="/work3/s235253/.cache/huggingface"
+mkdir -p /work3/s235253/.cache/huggingface
+
+source venv/bin/activate
+
 # Run SpaMo batch inference
-python batchinferencespamo.py \
+python3 batchinferencespamo.py \
     --video_csv cropped_videos_mapping.csv \
     --checkpoint spamo.ckpt \
     --target_lang English \
