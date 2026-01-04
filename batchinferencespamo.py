@@ -39,7 +39,7 @@ class InferenceConfig:
     checkpoint: str
     config: str = 'configs/finetune.yaml'
     device: str = 'cuda:0'
-    target_lang: str = 'German'
+    target_lang: str = 'English'
     spatial_batch_size: int = 64  # Larger batch for GPU
     motion_batch_size: int = 16   # Larger batch for GPU
     max_frames: Optional[int] = None
