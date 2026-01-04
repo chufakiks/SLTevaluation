@@ -1,0 +1,10 @@
+numpy
+opencv-python
+torch
+tqdm
+mediapipe
+pose-format
+sign-language-segmentation
+signwriting
+signwriting-transcription
+signwriting-translation
