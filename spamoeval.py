@@ -6,8 +6,11 @@ nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp
 """
 
 import argparse
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy import stats
+from scipy.optimize import curve_fit
 from sacrebleu.metrics import BLEU
 
 
@@ -103,19 +106,97 @@ def main():
         print(f"Model inference:             {results_df['inference_time'].sum() / total_frames * 1000:.3f}ms")
         print(f"Total time per frame:        {results_df['total_time'].sum() / total_frames * 1000:.3f}ms")
 
-        # Generate scatter plot: frame length vs visual feature extraction time
-        visual_time = results_df['spatial_feature_time'] + results_df['motion_feature_time']
+        # Generate scatter plots
+        base_path = args.output.replace('.csv', '') if args.output else 'timing'
+
+        # Filter out rows with NaN values for regression
+        valid_mask = results_df[['num_frames', 'spatial_feature_time', 'motion_feature_time']].notna().all(axis=1)
+        valid_df = results_df[valid_mask]
+
+        # Linear regression for spatial and motion
+        x = valid_df['num_frames'].values
+        y_spatial = valid_df['spatial_feature_time'].values
+        y_motion = valid_df['motion_feature_time'].values
+        slope_s, intercept_s, r_s, _, _ = stats.linregress(x, y_spatial)
+        slope_m, intercept_m, r_m, _, _ = stats.linregress(x, y_motion)
+
+        # Generate line points for plotting (min to max)
+        x_min, x_max = x.min(), x.max()
+        x_line = [x_min, x_max]
+
+        # 1. Frame length vs spatial feature extraction time (with linear regression)
         plt.figure(figsize=(10, 6))
-        plt.scatter(results_df['num_frames'], visual_time, alpha=0.5, s=10)
+        plt.scatter(x, y_spatial, alpha=0.5, s=10)
+        plt.plot(x_line, [slope_s * xi + intercept_s for xi in x_line], 'r-', linewidth=2)
         plt.xlabel('Number of Frames')
-        plt.ylabel('Visual Feature Extraction Time (s)')
-        plt.title('Frame Length vs Visual Feature Extraction Time')
+        plt.ylabel('Spatial Feature Extraction Time (s)')
+        plt.title('Frame Length vs Spatial Feature Extraction Time')
+        # Add regression equation as text annotation
+        plt.text(0.05, 0.95, f'y = {slope_s*1000:.2f}ms/frame + {intercept_s*1000:.2f}ms\nR² = {r_s**2:.4f}',
+                 transform=plt.gca().transAxes, fontsize=12, verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plot_path = args.output.replace('.csv', '_scatter.png') if args.output else 'timing_scatter.png'
-        plt.savefig(plot_path, dpi=150)
+        plt.savefig(f"{base_path}_spatial.png", dpi=150)
         plt.close()
-        print(f"\nScatter plot saved to {plot_path}")
+
+        # 2. Frame length vs motion feature extraction time (with linear regression)
+        plt.figure(figsize=(10, 6))
+        plt.scatter(x, y_motion, alpha=0.5, s=10)
+        plt.plot(x_line, [slope_m * xi + intercept_m for xi in x_line], 'r-', linewidth=2)
+        plt.xlabel('Number of Frames')
+        plt.ylabel('Motion Feature Extraction Time (s)')
+        plt.title('Frame Length vs Motion Feature Extraction Time')
+        # Add regression equation as text annotation
+        plt.text(0.05, 0.95, f'y = {slope_m*1000:.2f}ms/frame + {intercept_m*1000:.2f}ms\nR² = {r_m**2:.4f}',
+                 transform=plt.gca().transAxes, fontsize=12, verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f"{base_path}_motion.png", dpi=150)
+        plt.close()
+
+        # 3. Frame length vs inference time (with logarithmic fit)
+        y_inference = valid_df['inference_time'].values
+
+        # Logarithmic fit: y = a * log(x) + b
+        def log_func(x, a, b):
+            return a * np.log(x) + b
+
+        try:
+            popt, _ = curve_fit(log_func, x, y_inference)
+            a_inf, b_inf = popt
+            # Calculate R² for log fit
+            y_pred = log_func(x, a_inf, b_inf)
+            ss_res = np.sum((y_inference - y_pred) ** 2)
+            ss_tot = np.sum((y_inference - np.mean(y_inference)) ** 2)
+            r2_inf = 1 - (ss_res / ss_tot)
+            log_fit_success = True
+        except Exception:
+            log_fit_success = False
+
+        plt.figure(figsize=(10, 6))
+        plt.scatter(x, y_inference, alpha=0.5, s=10)
+        if log_fit_success:
+            x_smooth = np.linspace(x_min, x_max, 100)
+            plt.plot(x_smooth, log_func(x_smooth, a_inf, b_inf), 'r-', linewidth=2)
+            plt.text(0.05, 0.95, f'y = {a_inf*1000:.2f}ms·log(x) + {b_inf*1000:.2f}ms\nR² = {r2_inf:.4f}',
+                     transform=plt.gca().transAxes, fontsize=12, verticalalignment='top',
+                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        plt.xlabel('Number of Frames')
+        plt.ylabel('Inference Time (s)')
+        plt.title('Frame Length vs Inference Time')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(f"{base_path}_inference.png", dpi=150)
+        plt.close()
+
+        print(f"\nScatter plots saved to {base_path}_spatial.png, {base_path}_motion.png, {base_path}_inference.png")
+        print(f"\nLinear regression results:")
+        print(f"  Spatial: {slope_s*1000:.3f}ms/frame + {intercept_s*1000:.3f}ms (R² = {r_s**2:.4f})")
+        print(f"  Motion:  {slope_m*1000:.3f}ms/frame + {intercept_m*1000:.3f}ms (R² = {r_m**2:.4f})")
+        if log_fit_success:
+            print(f"  Inference (log): {a_inf*1000:.3f}ms·log(frames) + {b_inf*1000:.3f}ms (R² = {r2_inf:.4f})")
 
     # Save results if output specified
     if args.output:
