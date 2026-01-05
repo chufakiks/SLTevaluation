@@ -28,7 +28,7 @@ export TRANSFORMERS_CACHE="/work3/s235253/.cache/huggingface"
 export HUGGINGFACE_HUB_CACHE="/work3/s235253/.cache/huggingface"
 mkdir -p /work3/s235253/.cache/huggingface
 
-source venv/bin/activate
+source transvenv/bin/activate
 
 # Translate German results to English
 python3 translate_results.py \
