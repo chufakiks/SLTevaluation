@@ -1,5 +1,5 @@
 numpy<2.0.0
-opencv-python
+opencv-python<4.11.0
 torch
 tqdm
 mediapipe==0.10.9
