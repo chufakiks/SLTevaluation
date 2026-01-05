@@ -1,0 +1,38 @@
+#!/bin/sh
+### General options
+### -- specify queue --
+#BSUB -q hpc
+### -- set the job Name --
+#BSUB -J translate_en
+### -- ask for number of cores (default: 1) --
+#BSUB -n 8
+### -- specify that the cores must be on the same host --
+#BSUB -R "span[hosts=1]"
+### -- specify that we need 4GB of memory per core/slot --
+#BSUB -R "rusage[mem=4GB]"
+### -- specify that we want the job to get killed if it exceeds 5 GB per core/slot --
+#BSUB -M 5GB
+### -- set walltime limit: hh:mm --
+#BSUB -W 02:00
+### -- send notification at start --
+#BSUB -B
+### -- send notification at completion --
+#BSUB -N
+### -- Specify the output and error file. %J is the job-id --
+#BSUB -o Translate_%J.out
+#BSUB -e Translate_%J.err
+
+export XDG_CACHE_HOME="/work3/s235253/.cache"
+export HF_HOME="/work3/s235253/.cache/huggingface"
+export TRANSFORMERS_CACHE="/work3/s235253/.cache/huggingface"
+export HUGGINGFACE_HUB_CACHE="/work3/s235253/.cache/huggingface"
+mkdir -p /work3/s235253/.cache/huggingface
+
+source venv/bin/activate
+
+# Translate German results to English
+python3 translate_results.py \
+    --input spamores/results.csv \
+    --output spamores/results_en.csv \
+    --batch-size 32 \
+    --device cpu
