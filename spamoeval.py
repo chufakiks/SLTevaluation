@@ -7,6 +7,7 @@ nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp
 
 import argparse
 import pandas as pd
+import matplotlib.pyplot as plt
 from sacrebleu.metrics import BLEU
 
 
@@ -88,9 +89,47 @@ def main():
     for metric, value in scores.items():
         print(f"{metric}: {value:.2f}")
 
+    # Print average timing per frame if timing columns exist
+    timing_cols = ['frame_extraction_time', 'spatial_feature_time', 'motion_feature_time', 'inference_time', 'total_time']
+    if all(col in results_df.columns for col in timing_cols) and 'num_frames' in results_df.columns:
+        total_frames = results_df['num_frames'].sum()
+        print("\n" + "="*50)
+        print("AVERAGE TIMING PER FRAME")
+        print("="*50)
+        print(f"Total frames processed:      {total_frames}")
+        print(f"Frame extraction:            {results_df['frame_extraction_time'].sum() / total_frames * 1000:.3f}ms")
+        print(f"Spatial feature extraction:  {results_df['spatial_feature_time'].sum() / total_frames * 1000:.3f}ms")
+        print(f"Motion feature extraction:   {results_df['motion_feature_time'].sum() / total_frames * 1000:.3f}ms")
+        print(f"Model inference:             {results_df['inference_time'].sum() / total_frames * 1000:.3f}ms")
+        print(f"Total time per frame:        {results_df['total_time'].sum() / total_frames * 1000:.3f}ms")
+
+        # Generate scatter plot: frame length vs visual feature extraction time
+        visual_time = results_df['spatial_feature_time'] + results_df['motion_feature_time']
+        plt.figure(figsize=(10, 6))
+        plt.scatter(results_df['num_frames'], visual_time, alpha=0.5, s=10)
+        plt.xlabel('Number of Frames')
+        plt.ylabel('Visual Feature Extraction Time (s)')
+        plt.title('Frame Length vs Visual Feature Extraction Time')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plot_path = args.output.replace('.csv', '_scatter.png') if args.output else 'timing_scatter.png'
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        print(f"\nScatter plot saved to {plot_path}")
+
     # Save results if output specified
     if args.output:
-        scores_df = pd.DataFrame([scores])
+        output_data = scores.copy()
+        # Add per-frame timing (in ms) if available
+        if all(col in results_df.columns for col in timing_cols) and 'num_frames' in results_df.columns:
+            total_frames = results_df['num_frames'].sum()
+            output_data['total_frames'] = total_frames
+            output_data['per_frame_extraction_ms'] = results_df['frame_extraction_time'].sum() / total_frames * 1000
+            output_data['per_frame_spatial_ms'] = results_df['spatial_feature_time'].sum() / total_frames * 1000
+            output_data['per_frame_motion_ms'] = results_df['motion_feature_time'].sum() / total_frames * 1000
+            output_data['per_frame_inference_ms'] = results_df['inference_time'].sum() / total_frames * 1000
+            output_data['per_frame_total_ms'] = results_df['total_time'].sum() / total_frames * 1000
+        scores_df = pd.DataFrame([output_data])
         scores_df.to_csv(args.output, index=False)
         print(f"\nResults saved to {args.output}")
 
