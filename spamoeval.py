@@ -1,41 +1,99 @@
-from rouge_score import rouge_scorer
-from sacrebleu.metrics import BLEU, CHRF, TER
+#!/usr/bin/env python3
+"""Evaluate SPAMO translations against OpenASL references using BLEU.
+
+Uses SacreBLEU with settings matching SpaMo paper:
+nrefs:1|case:mixed|eff:no|tok:13a|smooth:exp
+"""
+
+import argparse
+import pandas as pd
+from sacrebleu.metrics import BLEU
 
 
-def evaluate_results(predictions, references, split="train", device='cpu', tokenizer='13a'):
+def evaluate_results(predictions, references, tokenizer='13a'):
     """
-    Evaluate prediction results using BLEU and ROUGE metrics.
+    Evaluate prediction results using BLEU metrics (matching SpaMo paper settings).
 
     Args:
         predictions (list): List of predicted sequences.
         references (list): List of reference sequences.
-        tokenizer (object, optional): Tokenizer if needed for evaluation.
-        split (str): The data split being evaluated.
+        tokenizer (str): Tokenizer for BLEU scoring (default: 13a).
 
     Returns:
-        dict: A dictionary of evaluation scores.
+        dict: A dictionary of BLEU-1 through BLEU-4 scores.
     """
-    log_dicts = {}
+    scores = {}
 
-    bleu4 = BLEU(max_ngram_order=4, tokenize=tokenizer).corpus_score(predictions, [references]).score
-    log_dicts[f"{split}/bleu4"] = bleu4
+    for i in range(1, 5):
+        bleu = BLEU(max_ngram_order=i, tokenize=tokenizer, smooth_method='exp')
+        score = bleu.corpus_score(predictions, [references]).score
+        scores[f"BLEU-{i}"] = score
 
-    if split == 'test':
-        for i in range(1, 4):
-            score = BLEU(max_ngram_order=i, tokenize=tokenizer).corpus_score(predictions, [references]).score
-            log_dicts[f"{split}/bleu" + str(i)] = score
+    return scores
 
-        # Calculate ROUGE-L score
-        scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
-        rouge_scores = [scorer.score(ref, pred)['rougeL'] for ref, pred in zip(references, predictions)]
-        
-        # Aggregate ROUGE-L scores (average precision, recall, and F1)
-        avg_precision = sum(score.precision for score in rouge_scores) / len(rouge_scores)
-        avg_recall = sum(score.recall for score in rouge_scores) / len(rouge_scores)
-        avg_f1 = sum(score.fmeasure for score in rouge_scores) / len(rouge_scores)
 
-        log_dicts[f"{split}/rougeL_precision"] = avg_precision
-        log_dicts[f"{split}/rougeL_recall"] = avg_recall
-        log_dicts[f"{split}/rougeL_f1"] = avg_f1
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate SPAMO translations")
+    parser.add_argument("--results", type=str, default="spamores/results_en.csv",
+                        help="Path to results CSV with translation_en column")
+    parser.add_argument("--references", type=str, default="openasl-v1.0.tsv",
+                        help="Path to OpenASL TSV file with reference translations")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Optional path to save evaluation results")
+    args = parser.parse_args()
 
-    return log_dicts
+    # Load results (predictions)
+    print(f"Loading results from {args.results}...")
+    results_df = pd.read_csv(args.results)
+
+    # Load references
+    print(f"Loading references from {args.references}...")
+    refs_df = pd.read_csv(args.references, sep='\t')
+
+    # Create lookup dict from vid to raw-text
+    ref_lookup = dict(zip(refs_df['vid'], refs_df['raw-text']))
+
+    # Match predictions with references
+    predictions = []
+    references = []
+    matched = 0
+    unmatched = 0
+
+    for _, row in results_df.iterrows():
+        video_id = row['video_id']
+        if video_id in ref_lookup:
+            pred = row.get('translation_en', row.get('translation', ''))
+            ref = ref_lookup[video_id]
+            if pd.notna(pred) and pd.notna(ref):
+                predictions.append(str(pred))
+                references.append(str(ref))
+                matched += 1
+        else:
+            unmatched += 1
+
+    print(f"Matched: {matched}, Unmatched: {unmatched}")
+
+    if matched == 0:
+        print("Error: No matching video IDs found between results and references.")
+        return
+
+    # Evaluate
+    print("Evaluating with SacreBLEU (tok:13a, smooth:exp)...")
+    scores = evaluate_results(predictions, references)
+
+    # Print results
+    print("\n" + "="*50)
+    print("EVALUATION RESULTS")
+    print("="*50)
+    for metric, value in scores.items():
+        print(f"{metric}: {value:.2f}")
+
+    # Save results if output specified
+    if args.output:
+        scores_df = pd.DataFrame([scores])
+        scores_df.to_csv(args.output, index=False)
+        print(f"\nResults saved to {args.output}")
+
+
+if __name__ == "__main__":
+    main()
