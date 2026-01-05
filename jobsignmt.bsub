@@ -39,7 +39,7 @@ source venv/bin/activate
 
 # Run SignWriting batch inference
 python3 batchinferencesignmt.py \
-    --csv soamores/results.csv \
+    --csv spamores/results.csv \
     --output signmtres/results.csv \
     --video-base-path /work3/s235253/openaslcropped \
     --video-extension "" \
