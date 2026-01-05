@@ -2,7 +2,7 @@ numpy
 opencv-python
 torch
 tqdm
-mediapipe
+mediapipe==0.10.9
 pose-format
 git+https://github.com/sign-language-processing/segmentation
 git+https://github.com/sign-language-processing/signwriting
