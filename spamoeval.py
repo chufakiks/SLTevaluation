@@ -198,6 +198,42 @@ def main():
         if log_fit_success:
             print(f"  Inference (log): {a_inf*1000:.3f}ms·log(frames) + {b_inf*1000:.3f}ms (R² = {r2_inf:.4f})")
 
+        # 4. Waterfall diagram for average timing breakdown (horizontal)
+        avg_frames = valid_df['num_frames'].mean()
+        avg_spatial = valid_df['spatial_feature_time'].mean() * 1000  # ms
+        avg_motion = valid_df['motion_feature_time'].mean() * 1000
+        avg_inference = valid_df['inference_time'].mean() * 1000
+
+        stages = ['Spatial Features', 'Motion Features', 'Inference']
+        values = [avg_spatial, avg_motion, avg_inference]
+        cumulative = np.cumsum([0] + values[:-1])
+
+        fig, ax = plt.subplots(figsize=(12, 4))
+        colors = ['#2196F3', '#FF9800', '#E91E63']
+        bars = ax.barh(0, values, left=cumulative, color=colors, edgecolor='black', linewidth=0.5, height=0.5)
+
+        # Add value labels on bars
+        for bar, val, cum, stage in zip(bars, values, cumulative, stages):
+            width = bar.get_width()
+            ax.text(cum + width/2., 0, f'{stage}\n{val:.1f}ms',
+                    ha='center', va='center', fontsize=10, fontweight='bold', color='white')
+
+        # Add total label
+        total_time = sum(values)
+        ax.axvline(x=total_time, color='red', linestyle='--', linewidth=2)
+        ax.text(total_time + total_time*0.01, 0, f'Total: {total_time:.1f}ms',
+                ha='left', va='center', fontsize=11, fontweight='bold', color='red')
+
+        ax.set_xlabel('Time (ms)')
+        ax.set_title(f'Pipeline Timing Breakdown (avg {avg_frames:.0f} frames/video)')
+        ax.set_yticks([])
+        ax.set_xlim(0, total_time * 1.15)
+        plt.tight_layout()
+        plt.savefig(f"{base_path}_waterfall.png", dpi=150)
+        plt.close()
+
+        print(f"Waterfall diagram saved to {base_path}_waterfall.png")
+
     # Save results if output specified
     if args.output:
         output_data = scores.copy()
