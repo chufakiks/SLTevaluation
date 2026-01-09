@@ -6,8 +6,6 @@ numpy<2.0.0
 pydantic>=2.0.0
 fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
-pandas
-sentencepiece
 
 # MediaPipe for pose detection
 mediapipe>=0.10.5
@@ -18,5 +16,5 @@ pose-format>=0.3.2
 
 # Sign language processing libraries
 sign-language-segmentation @ git+https://github.com/sign-language-processing/segmentation
-signwriting-transcription[pose_to_signwriting] @ git+https://github.com/sign-language-processing/signwriting-transcription.git@joeys2t_adaptation
+signwriting-transcription[pose_to_signwriting] @ git+https://github.com/sign-language-processing/signwriting-transcription
 signwriting-translation @ git+https://github.com/sign-language-processing/signwriting-translation
