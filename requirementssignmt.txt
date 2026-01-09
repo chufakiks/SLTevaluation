@@ -1,10 +1,20 @@
+# Sign2Speech Backend Requirements
+# For GPU support, install torch separately first:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+
 numpy<2.0.0
-opencv-python<4.11.0
-torch
-tqdm
-mediapipe==0.10.9
-pose-format
-git+https://github.com/sign-language-processing/segmentation
-git+https://github.com/sign-language-processing/signwriting
-git+https://github.com/sign-language-processing/signwriting-transcription
-git+https://github.com/sign-language-processing/signwriting-translation
+pydantic>=2.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+
+# MediaPipe for pose detection
+mediapipe>=0.10.5
+opencv-python>=4.8.0
+
+# Pose format library
+pose-format>=0.3.2
+
+# Sign language processing libraries
+sign-language-segmentation @ git+https://github.com/sign-language-processing/segmentation
+signwriting-transcription[pose_to_signwriting] @ git+https://github.com/sign-language-processing/signwriting-transcription
+signwriting-translation @ git+https://github.com/sign-language-processing/signwriting-translation
