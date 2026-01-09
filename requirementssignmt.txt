@@ -1,6 +1,6 @@
 # Sign2Speech Backend Requirements
 # For GPU support, install torch separately first:
-torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+#pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 numpy<2.0.0
 pydantic>=2.0.0
