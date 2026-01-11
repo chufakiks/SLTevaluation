@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--references", type=str, default="openasl-v1.0.tsv",
                         help="Path to OpenASL TSV file with reference translations")
     parser.add_argument("--output", type=str, default=None,
-                        help="Optional path to save evaluation results")
+                        help="Optional output directory to save evaluation results")
     args = parser.parse_args()
 
     # Load results (predictions)
@@ -69,7 +69,9 @@ def main():
             pred = row.get('translation_en', row.get('translation', ''))
             ref = ref_lookup[video_id]
             if pd.notna(pred) and pd.notna(ref):
-                predictions.append(str(pred))
+                # Remove pipe separators from SignMT output
+                pred_clean = str(pred).replace('|', ' ')
+                predictions.append(pred_clean)
                 references.append(str(ref))
                 matched += 1
         else:
@@ -92,12 +94,112 @@ def main():
     for metric, value in scores.items():
         print(f"{metric}: {value:.2f}")
 
-    # Print average timing per frame if timing columns exist
-    timing_cols = ['frame_extraction_time', 'spatial_feature_time', 'motion_feature_time', 'inference_time', 'total_time']
-    if all(col in results_df.columns for col in timing_cols) and 'num_frames' in results_df.columns:
+    # Print average timing if timing columns exist
+    import os
+    spamo_timing_cols = ['frame_extraction_time', 'spatial_feature_time', 'motion_feature_time', 'inference_time', 'total_time']
+    signmt_timing_cols = ['time_pose_extraction_ms', 'time_segmentation_ms', 'time_transcription_ms', 'time_translation_ms', 'time_total_ms']
+
+    if args.output:
+        os.makedirs(args.output, exist_ok=True)
+        base_path = os.path.join(args.output, 'timing')
+    else:
+        base_path = 'timing'
+
+    # SignMT timing format
+    if all(col in results_df.columns for col in signmt_timing_cols):
+        print("\n" + "="*50)
+        print("TIMING STATISTICS (SignMT)")
+        print("="*50)
+        print(f"Total videos processed:      {len(results_df)}")
+        print(f"Avg pose extraction:         {results_df['time_pose_extraction_ms'].mean():.2f}ms")
+        print(f"Avg segmentation:            {results_df['time_segmentation_ms'].mean():.2f}ms")
+        print(f"Avg transcription:           {results_df['time_transcription_ms'].mean():.2f}ms")
+        print(f"Avg translation:             {results_df['time_translation_ms'].mean():.2f}ms")
+        print(f"Avg total time:              {results_df['time_total_ms'].mean():.2f}ms")
+
+        # Filter valid rows
+        valid_df = results_df[results_df[signmt_timing_cols].notna().all(axis=1)]
+
+        if len(valid_df) > 10 and 'duration' in valid_df.columns:
+            x = valid_df['duration'].values
+            x_line = [x.min(), x.max()]
+
+            # Scatter plots for each timing component
+            timing_components = [
+                ('time_pose_extraction_ms', 'Pose Extraction Time (ms)', 'pose_extraction'),
+                ('time_segmentation_ms', 'Segmentation Time (ms)', 'segmentation'),
+                ('time_transcription_ms', 'Transcription Time (ms)', 'transcription'),
+                ('time_translation_ms', 'Translation Time (ms)', 'translation'),
+                ('time_total_ms', 'Total Processing Time (ms)', 'total'),
+            ]
+
+            for col, ylabel, suffix in timing_components:
+                y = valid_df[col].values
+
+                # Filter outliers using 99th percentile for cleaner plots
+                y_99 = np.percentile(y, 99)
+                mask = y <= y_99
+                x_filtered = x[mask]
+                y_filtered = y[mask]
+
+                slope, intercept, r, _, _ = stats.linregress(x_filtered, y_filtered)
+                x_line_filtered = [x_filtered.min(), x_filtered.max()]
+
+                plt.figure(figsize=(10, 6))
+                plt.scatter(x_filtered, y_filtered, alpha=0.5, s=10)
+                plt.plot(x_line_filtered, [slope * xi + intercept for xi in x_line_filtered], 'r-', linewidth=2)
+                plt.xlabel('Video Duration (s)')
+                plt.ylabel(ylabel)
+                plt.title(f'Video Duration vs {ylabel}')
+                plt.text(0.05, 0.95, f'y = {slope:.2f}ms/s + {intercept:.2f}ms\nR² = {r**2:.4f}',
+                         transform=plt.gca().transAxes, fontsize=12, verticalalignment='top',
+                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                plt.savefig(f"{base_path}_{suffix}.png", dpi=150)
+                plt.close()
+
+            # Waterfall diagram for average timing breakdown
+            avg_pose = valid_df['time_pose_extraction_ms'].mean()
+            avg_seg = valid_df['time_segmentation_ms'].mean()
+            avg_trans = valid_df['time_transcription_ms'].mean()
+            avg_transl = valid_df['time_translation_ms'].mean()
+
+            stages = ['Pose Extraction', 'Segmentation', 'Transcription', 'Translation']
+            values = [avg_pose, avg_seg, avg_trans, avg_transl]
+            cumulative = np.cumsum([0] + values[:-1])
+
+            fig, ax = plt.subplots(figsize=(12, 5))
+            colors = ['#2196F3', '#4CAF50', '#FF9800', '#E91E63']
+            bars = ax.barh(0, values, left=cumulative, color=colors, edgecolor='black', linewidth=0.5, height=0.5)
+
+            total_time = sum(values)
+            ax.axvline(x=total_time, color='red', linestyle='--', linewidth=2)
+
+            ax.set_xlabel('Time (ms)')
+            ax.set_title('SignMT Pipeline Timing Breakdown')
+            ax.set_yticks([])
+            ax.set_xlim(0, total_time * 1.15)
+
+            # Add legend at the bottom
+            legend_handles = [plt.Rectangle((0, 0), 1, 1, color=c) for c in colors]
+            legend_labels = [f'{s} ({v:.1f}ms)' for s, v in zip(stages, values)]
+            legend_labels.append(f'Total ({total_time:.1f}ms)')
+            legend_handles.append(plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2))
+            ax.legend(legend_handles, legend_labels, loc='upper center', bbox_to_anchor=(0.5, -0.15),
+                      ncol=5, frameon=False, fontsize=10)
+
+            plt.tight_layout()
+            plt.savefig(f"{base_path}_waterfall.png", dpi=150, bbox_inches='tight')
+            plt.close()
+
+            print(f"\nPlots saved to {base_path}_*.png")
+
+    # SPAMO timing format
+    elif all(col in results_df.columns for col in spamo_timing_cols) and 'num_frames' in results_df.columns:
         total_frames = results_df['num_frames'].sum()
         print("\n" + "="*50)
-        print("AVERAGE TIMING PER FRAME")
+        print("AVERAGE TIMING PER FRAME (SPAMO)")
         print("="*50)
         print(f"Total frames processed:      {total_frames}")
         print(f"Frame extraction:            {results_df['frame_extraction_time'].sum() / total_frames * 1000:.3f}ms")
@@ -105,9 +207,6 @@ def main():
         print(f"Motion feature extraction:   {results_df['motion_feature_time'].sum() / total_frames * 1000:.3f}ms")
         print(f"Model inference:             {results_df['inference_time'].sum() / total_frames * 1000:.3f}ms")
         print(f"Total time per frame:        {results_df['total_time'].sum() / total_frames * 1000:.3f}ms")
-
-        # Generate scatter plots
-        base_path = args.output.replace('.csv', '') if args.output else 'timing'
 
         # Filter out rows with NaN values for regression
         valid_mask = results_df[['num_frames', 'spatial_feature_time', 'motion_feature_time']].notna().all(axis=1)
@@ -237,8 +336,15 @@ def main():
     # Save results if output specified
     if args.output:
         output_data = scores.copy()
-        # Add per-frame timing (in ms) if available
-        if all(col in results_df.columns for col in timing_cols) and 'num_frames' in results_df.columns:
+        # Add SignMT timing (in ms) if available
+        if all(col in results_df.columns for col in signmt_timing_cols):
+            output_data['avg_pose_extraction_ms'] = results_df['time_pose_extraction_ms'].mean()
+            output_data['avg_segmentation_ms'] = results_df['time_segmentation_ms'].mean()
+            output_data['avg_transcription_ms'] = results_df['time_transcription_ms'].mean()
+            output_data['avg_translation_ms'] = results_df['time_translation_ms'].mean()
+            output_data['avg_total_ms'] = results_df['time_total_ms'].mean()
+        # Add SPAMO per-frame timing (in ms) if available
+        elif all(col in results_df.columns for col in spamo_timing_cols) and 'num_frames' in results_df.columns:
             total_frames = results_df['num_frames'].sum()
             output_data['total_frames'] = total_frames
             output_data['per_frame_extraction_ms'] = results_df['frame_extraction_time'].sum() / total_frames * 1000
@@ -247,8 +353,9 @@ def main():
             output_data['per_frame_inference_ms'] = results_df['inference_time'].sum() / total_frames * 1000
             output_data['per_frame_total_ms'] = results_df['total_time'].sum() / total_frames * 1000
         scores_df = pd.DataFrame([output_data])
-        scores_df.to_csv(args.output, index=False)
-        print(f"\nResults saved to {args.output}")
+        output_file = os.path.join(args.output, 'eval_results.csv')
+        scores_df.to_csv(output_file, index=False)
+        print(f"\nResults saved to {output_file}")
 
 
 if __name__ == "__main__":
