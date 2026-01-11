@@ -120,9 +120,13 @@ def main():
         # Filter valid rows
         valid_df = results_df[results_df[signmt_timing_cols].notna().all(axis=1)]
 
-        if len(valid_df) > 10 and 'duration' in valid_df.columns:
-            x = valid_df['duration'].values
-            x_line = [x.min(), x.max()]
+        # Calculate num_frames from duration * fps
+        if 'duration' in valid_df.columns and 'fps' in valid_df.columns:
+            valid_df = valid_df.copy()
+            valid_df['num_frames'] = valid_df['duration'] * valid_df['fps']
+
+        if len(valid_df) > 10 and 'num_frames' in valid_df.columns:
+            x = valid_df['num_frames'].values
 
             # Scatter plots for each timing component
             timing_components = [
@@ -148,10 +152,10 @@ def main():
                 plt.figure(figsize=(10, 6))
                 plt.scatter(x_filtered, y_filtered, alpha=0.5, s=10)
                 plt.plot(x_line_filtered, [slope * xi + intercept for xi in x_line_filtered], 'r-', linewidth=2)
-                plt.xlabel('Video Duration (s)')
+                plt.xlabel('Number of Frames')
                 plt.ylabel(ylabel)
-                plt.title(f'Video Duration vs {ylabel}')
-                plt.text(0.05, 0.95, f'y = {slope:.2f}ms/s + {intercept:.2f}ms\nR² = {r**2:.4f}',
+                plt.title(f'Number of Frames vs {ylabel}')
+                plt.text(0.05, 0.95, f'y = {slope:.2f}ms/frame + {intercept:.2f}ms\nR² = {r**2:.4f}',
                          transform=plt.gca().transAxes, fontsize=12, verticalalignment='top',
                          bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
                 plt.grid(True, alpha=0.3)
